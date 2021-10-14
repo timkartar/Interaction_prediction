@@ -1,0 +1,36 @@
+{
+  "data_dir": "/project/rohs_102/raktimmi/interactions/data/npz/",
+  "output_path": "/project/rohs_102/raktimmi/interactions/src/output/",
+  "run_name": "test_delG_pred",
+  "nc": 1,
+  "epochs": 30,
+  "batch_size": 1,
+  "no_random": false,
+  "debug": false,
+  "write": true,
+  "checkpoint_every": 0,
+  "tensorboard": true,
+  "shuffle": false,
+  "labels_key": "Y",
+  "balance": "unmasked",
+  "motif_length": 5,
+  "nmotif_features": 4,
+  "kl": true,
+  "kmer_encoding": "one_hot",
+  "best_state_metric": "r2_score",
+  "optimizer": {
+    "name": "adam",
+    "kwargs": {
+      "lr": 0.01,
+      "weight_decay": 0.0001
+    }
+  },
+  "scheduler": {
+    "name": null,
+    "kwargs": {}
+  },
+  "model":{
+    "trans_args": {}
+  }
+}
+
