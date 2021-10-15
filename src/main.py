@@ -61,8 +61,8 @@ from torch_geometric.transforms import Compose, FaceToEdge, PointPairFeatures, G
 from load import loadDataset
 #from nn.utils.class_weights import classWeights
 from trainer import Trainer
-from simple_model import BindingSiteEncoder
-
+#from simple_model import BindingSiteEncoder
+from point_net import PointNetPP
 #from geobind.nn.utils import classWeights
 from evaluator import Evaluator
 #from geobind.nn.models import NetConvPool, PointNetPP, MultiBranchNet, FFNet
@@ -218,7 +218,8 @@ else:
 ####################################################################################################
 # Create the model we'll be training.
 nF = train_info['num_features']
-model = BindingSiteEncoder(nF, 16)
+#model = BindingSiteEncoder(nF, 16)
+model = PointNetPP(nF,nOut=16,conv_args={'name': 'PPFConv'}, depth = 4, radii = [2.4, 3.3, 5.4, 7.2] )
 #print(nF, C["motif_length"], C["nmotif_features"])
 #model = MotifGenerator(nF, C["motif_length"], nmotif_features=C["nmotif_features"], latent_length=60, kl=C['kl'], kmer_encoding=C['kmer_encoding'])
 

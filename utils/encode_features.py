@@ -4,6 +4,9 @@ import sys
 import numpy as np
 from scipy.spatial import cKDTree
 from Bio.PDB import is_aa
+from pyntcloud import PyntCloud
+import pandas as pd
+
 pdbs=[]
 chains_to_keep=[]
 Ys = []
@@ -21,7 +24,7 @@ processed_path = "/project/rohs_102/raktimmi/interactions/data/processed/"
 out_path = "/project/rohs_102/raktimmi/interactions/data/npz/"
 raw_atom_types = "/project/rohs_102/raktimmi/interactions/utils/atom_types.txt"
 
-def encode_features(model, Y, out_path, atom_keys, feature_coord_map):
+def encode_features(model, Y, out_path, atom_keys, feature_coord_map, idx = None):
     atom_list = []
     V = []
     X = []
@@ -58,6 +61,26 @@ def encode_features(model, Y, out_path, atom_keys, feature_coord_map):
     npz_data['E'] = np.array(E)
     npz_data['E_mask'] = np.array(E_mask)
     npz_data['Y'] = Y
+    
+    protein_cloud = PyntCloud(pd.DataFrame(
+        data = npz_data['V'][npz_data['X'][:,250] == 1, :],
+        columns=["x", "y", "z"]
+            ))
+    k_neighbors = protein_cloud.get_neighbors(k=10)
+    protein_cloud.add_scalar_field("normals", k_neighbors=k_neighbors)
+
+    dna_cloud = PyntCloud(pd.DataFrame(
+        data = npz_data['V'][npz_data['X'][:,250] == 0, :],
+        columns=["x", "y", "z"]
+            ))
+    k_neighbors = dna_cloud.get_neighbors(k=6)
+    try:
+        dna_cloud.add_scalar_field("normals", k_neighbors=k_neighbors)
+    except:
+        print(dna_cloud, dna_cloud.points, k_neighbors, idx)
+    npz_data['N'] = np.zeros_like(V)
+    npz_data['N'][np.where(npz_data['X'][:,250] == 1), :] = protein_cloud.points.to_numpy()[:,3:]
+    npz_data['N'][np.where(npz_data['X'][:,250] == 0), :] = dna_cloud.points.to_numpy()[:,3:]
     return npz_data
 
 atom_keys = dict()
@@ -87,7 +110,7 @@ for i, k in enumerate(atom_keys.values()):
 for i in tqdm(range(len(pdbs))):
     structure = parser.get_structure(pdbs[i], processed_path + pdbs[i].lower() + "_" + chains_to_keep[i] + ".pdb")
     model = structure[0]
-    npz_data = encode_features(model, Ys[i], out_path + pdbs[i].lower() + "_" + chains_to_keep[i] + ".npz", atom_keys, feature_coord_map)
+    npz_data = encode_features(model, Ys[i], out_path + pdbs[i].lower() + "_" + chains_to_keep[i] + ".npz", atom_keys, feature_coord_map, idx = pdbs[i].lower() + "_" + chains_to_keep[i])
     np.savez(out_path + pdbs[i].lower() + "_" + chains_to_keep[i] + ".npz", **npz_data)
 
 

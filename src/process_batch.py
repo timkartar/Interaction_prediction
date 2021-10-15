@@ -5,6 +5,7 @@ import sys
 def processBatch(device, batch, xtras=None):
     batch_data = {}
     if isinstance(batch, list):
+        print([data.y for data in batch])
         batch_data['y'] = torch.cat([data.y for data in batch]).to(device)
         if xtras is not None:
             for item in xtras:

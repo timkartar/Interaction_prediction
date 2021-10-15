@@ -1,7 +1,7 @@
 import torch
 from mlp import MLP
 import sys
-from torch_geometric.nn import  PPFConv, PointNetConv, fps, radius, global_max_pool
+from torch_geometric.nn import  PPFConv, fps, radius, global_max_pool
 
 class SAModule(torch.nn.Module):
     def __init__(self, dim_in, dim_out, ratio, radius,
@@ -46,11 +46,11 @@ class BindingSiteEncoder(torch.nn.Module):
             radii=None,
             max_neighbors=32,
             batch_norm=False,
-            edges_to_count=None
         ):
         super(BindingSiteEncoder, self).__init__()
         self.name = "Binding site encoder"
         self.depth = depth
+        
         if ratios is None:
             ratios = [0.4]*depth
         assert len(ratios) == depth
@@ -86,6 +86,7 @@ class BindingSiteEncoder(torch.nn.Module):
         )
     
     def forward(self, data):
+        print(data.x.shape)
         x = self.lin_in(data.x)
         
         # conv/pooling
@@ -97,12 +98,13 @@ class BindingSiteEncoder(torch.nn.Module):
             sa_out = (x, pos, batch)
             norm = norm[idx]
         
+        print(x.shape)
         # global pool
-        x = global_max_pool(x, batch)
+        #x = global_max_pool(x, batch)
         
         # latent distribution parameters
         x = self.lin_out(x)
-        
+        edges_to_count = data.het_edge_index 
         left = x[edges_to_count[:,0],:]
         right = x[edges_to_count[:,1],:]
 

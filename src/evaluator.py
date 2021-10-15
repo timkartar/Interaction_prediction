@@ -86,7 +86,8 @@ class Evaluator(object):
         
         def _loop(batch, data_items, y_gts, y_prs, outps, masks, batches):
             batch_data = processBatch(self.device, batch, xtras=xtras)
-            batch, y, mask = batch_data['batch'], batch_data['y'], batch_data['mask']
+            #batch, y, mask = batch_data['batch'], batch_data['y'], batch_data['mask']
+            batch, y = batch_data['batch'], batch_data['y']
             output = self.model(batch)
             if (type(output) == tuple):
                 output = output[0][0]
@@ -217,11 +218,11 @@ class Evaluator(object):
             #masks = [masks]
         
         # Get predicted class labels
-        for i in range(len(y_gt)):
-            for metric, kw in self.metrics.items():
-                metric_values[metric].append(METRICS_FN[metric](y_gt, outs, **kw))
-        #for key in metric_values:
-        #    metric_values[key] = np.mean(metric_values[key])
+        #for i in range(len(y_gt)):
+        for metric, kw in self.metrics.items():
+            metric_values[metric].append(METRICS_FN[metric](np.array(y_gt).reshape(-1,1), np.array(outs).reshape(-1,1), **kw))
+        for key in metric_values:
+            metric_values[key] = np.mean(metric_values[key])
         
         return metric_values
     

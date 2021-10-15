@@ -20,10 +20,11 @@ def _processData(data_files):
 
         data = Data(
             x=torch.tensor(data_arrays['X'], dtype=torch.float32),
-            y=torch.tensor(data_arrays['Y'], dtype=torch.float32),
+            y=torch.tensor(data_arrays['Y'], dtype=torch.float32).unsqueeze(0),
             pos=torch.tensor(data_arrays['V'], dtype=torch.float32),
+            norm=torch.tensor(data_arrays['N'], dtype=torch.float32),
             edge_attr=None,
-            edge_index=torch.tensor(data_arrays['E'][data_arrays['E_mask']])
+            het_edge_index=torch.tensor(data_arrays['E'][data_arrays['E_mask']])
         )
         #data.mask = torch.tensor(idxb, dtype=torch.bool)
         data_list.append(data)
