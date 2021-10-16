@@ -3,7 +3,7 @@ import numpy as np
 def createFormattedStrings(fields, values, widths=None, pad=2, alignment='<', float_format='.3f'):
     """ automatically create a formatted string based on fields and values """
     if(widths is None):
-        widths = [max(len(f)+pad, 6) for f in fields]
+        widths = [max(len(f)+pad, 12) for f in fields]
     header_format = ""
     values_format = ""
     for v, w in zip(values, widths):

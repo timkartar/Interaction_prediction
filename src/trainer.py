@@ -206,12 +206,12 @@ class Trainer(object):
         self.optimizer.zero_grad()
         output = self.model(batch)
         
-        loss = torch.square(output - y)
+        loss = torch.square(output.reshape(-1,1) - y.reshape(-1,1))
         # compute gradients
-        loss.backward()
+        loss.sum().backward()
         self.optimizer.step()
         
-        return loss.item()
+        return loss.sum().item()
     
 
     def updateHistory(self, metrics, epoch):
@@ -231,7 +231,7 @@ class Trainer(object):
                 # add metric to history
                 if metric not in self.metrics_history[tag]:
                     self.metrics_history[tag][metric] = []
-                self.metrics_history[tag][metric].append(metrics[tag][metric])
+                self.metrics_history[tag][metric].append(str(metrics[tag][metric]))
     
     def getHistory(self, tag, metric, epoch):
         if epoch == -1:
