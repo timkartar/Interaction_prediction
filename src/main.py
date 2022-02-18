@@ -53,6 +53,7 @@ import pickle
 
 import numpy as np
 import torch
+torch.autograd.set_detect_anomaly(True)
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.nn import DataParallel
 from torch_geometric.data import DataLoader, DataListLoader
@@ -60,15 +61,19 @@ from torch_geometric.transforms import Compose, FaceToEdge, PointPairFeatures, G
 
 from load import loadDataset
 #from nn.utils.class_weights import classWeights
-from trainer import Trainer
+from combined_trainer import Trainer
 #from simple_model import BindingSiteEncoder
 from point_net import PointNetPP
+#from point_net_binding import PointNetPPBinding
+from combined import PointNetPPBinding
 #from geobind.nn.utils import classWeights
 from evaluator import Evaluator
 #from geobind.nn.models import NetConvPool, PointNetPP, MultiBranchNet, FFNet
 from report_metrics import reportMetrics
-from geobind.nn.transforms import GeometricEdgeFeatures, ScaleEdgeFeatures
 
+#from geobind.nn.transforms import GeometricEdgeFeatures, ScaleEdgeFeatures
+
+'''
 def getDataTransforms(args):
     t_lookup = {
         "FaceToEdge": (FaceToEdge, lambda ob: 0),
@@ -88,7 +93,7 @@ def getDataTransforms(args):
         transforms.append(t)
     
     return Compose(transforms), edge_dim
-
+'''
 def addWeightDecay(model, weight_decay=1e-5, skip_list=()):
     """This function excludes certain parameters (e.g. batch norm, and linear biases)
     from being subject to weight decay"""
@@ -195,13 +200,14 @@ train_datafiles = [_.strip() for _ in open(ARGS.train_file).readlines()]
 valid_datafiles = [_.strip() for _ in open(ARGS.valid_file).readlines()]
 
 #remove_mask = (C["balance"] == 'all')
+'''
 trans_args = C["model"].get("transform_args", [])
 transform, edge_dim = getDataTransforms(trans_args)
 feature_mask = C.get("feature_mask", None)
+'''
 
-
-train_dataset, train_info = loadDataset(train_datafiles, C["labels_key"], C["data_dir"])
-valid_dataset, valid_info = loadDataset(valid_datafiles, C["labels_key"], C["data_dir"])
+train_dataset, train_info = loadDataset(train_datafiles, C["x_key"], C["labels_key"], C["data_dir"])
+valid_dataset, valid_info = loadDataset(valid_datafiles, C["x_key"], C["labels_key"], C["data_dir"])
 
 # save scaler to file
 #pickle.dump(transforms["scaler"], open(ospj(run_path, 'scaler.pkl'), "wb"))
@@ -219,7 +225,18 @@ else:
 # Create the model we'll be training.
 nF = train_info['num_features']
 #model = BindingSiteEncoder(nF, 16)
-model = PointNetPP(nF,nOut=16,conv_args={'name': 'PPFConv'}, depth = 4, radii = [2.4, 3.3, 5.4, 7.2] )
+if C["model_name"] == "pointnetpp":
+    model = PointNetPP(nF,nOut=16,conv_args=C["conv_args"], depth = 4, radii = [5, 10, 20, 25] )
+elif C["model_name"] == "pointnetppbinding":
+    model = PointNetPPBinding(nF,nOut=2,conv_args=C["conv_args"], depth = 4, radii = [5, 10, 20, 25] )
+
+def init_weights(m):
+    try:
+        torch.nn.init.xavier_normal(m.weight)
+        #m.bias.data.fill_(0.01)
+    except:
+        pass
+model.apply(init_weights)
 #print(nF, C["motif_length"], C["nmotif_features"])
 #model = MotifGenerator(nF, C["motif_length"], nmotif_features=C["nmotif_features"], latent_length=60, kl=C['kl'], kmer_encoding=C['kmer_encoding'])
 
@@ -227,6 +244,8 @@ model_parameters = addWeightDecay(model, C["optimizer"]["kwargs"]["weight_decay"
 #optimizer
 if(C["optimizer"]["name"] == "adam"):
     optimizer = torch.optim.Adam(model_parameters, **C["optimizer"]["kwargs"])
+elif(C["optimizer"]["name"] == "adamW"):
+    optimizer = torch.optim.AdamW(model_parameters, **C["optimizer"]["kwargs"])
 elif(C["optimizer"]["name"] == "sgd"):
     optimizer = torch.optim.SGD(model_parameters, **C["optimizer"]["kwargs"])
 logging.info("configured optimizer: %s", C["optimizer"]["name"])
@@ -245,7 +264,17 @@ logging.info("configured learning rate scheduler: %s", C["scheduler"]["name"])
 
 
 # Loss function
-criterion = torch.nn.functional.cross_entropy
+'''
+if C["loss"] == "ce":
+    criterion = torch.nn.CrossEntropyLoss()
+elif C["loss"] == "mse":
+    criterion = torch.nn.MSELoss()
+elif C["loss"] == "l1":
+    criterion = torch.nn.L1Loss()
+else:
+    criterion = torch.nn.MSELoss()
+'''
+criterion = C["loss"]
 # Set up multiple GPU utilization
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 if torch.cuda.device_count() <= 1 or C["single_gpu"] or C["debug"]:
@@ -262,7 +291,7 @@ evaluator = Evaluator(model, C["nc"], device=device)#, post_process=torch.nn.Sof
 trainer = Trainer(model, C["nc"], optimizer, criterion, device, scheduler, evaluator,
     checkpoint_path=run_path,
     writer=writer,
-    quiet=False,
+    quiet=False
 )
 
 # determine how to weight classes

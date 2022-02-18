@@ -10,4 +10,4 @@
 #SBATCH --partition=rohs
 #SBATCH --gres=gpu:2
 
-python -W ignore main.py --train_file train.txt --valid_file valid.txt -c combined_config.json --eval_every 1
+python -W ignore main.py --train_file mini_train.txt --valid_file mini_valid.txt -c combined_config.json --eval_every 1

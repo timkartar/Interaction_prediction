@@ -1,9 +1,9 @@
+3imb_ABEF.npz
 4flw_APT.npz
 3au6_ATP.npz
 3q8l_AEDF.npz
 3ngz_ABCD.npz
 5awh_AD.npz
-4ljr_AC.npz
 4a15_AE.npz
 1xsl_AEBDC.npz
 3gqc_ABEF.npz
@@ -35,8 +35,6 @@
 2ccz_ABC.npz
 2er8_AE.npz
 3lwh_AB.npz
-2ivk_AI.npz
-3imb_ABEF.npz
 4rkh_CAB.npz
 1cma_ABCD.npz
 3rn2_AK.npz

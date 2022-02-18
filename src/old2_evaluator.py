@@ -1,6 +1,7 @@
 # third party modules
 import torch
 import numpy as np
+import sys
 
 # geobind modules
 from process_batch import processBatch
@@ -8,6 +9,10 @@ from metrics import auroc, auprc, balanced_accuracy_score, recall_score, brier_s
 from metrics import precision_score, jaccard_score, f1_score, accuracy_score, matthews_corrcoef
 from report_metrics import reportMetrics
 from metrics import explained_variance_score, mean_squared_error, mean_absolute_error, r2_score
+from geobind.nn.metrics import chooseBinaryThreshold, meshLabelSmoothness
+
+from scipy.spatial.distance import jensenshannon
+from scipy.special import softmax
 
 METRICS_FN = {
     'accuracy': accuracy_score,
@@ -20,20 +25,25 @@ METRICS_FN = {
     'f1_score': f1_score,
     'brier_score': brier_score_loss,
     'matthews_corrcoef': matthews_corrcoef,
+    'smoothness': meshLabelSmoothness,
     'mean_squared_error': mean_squared_error,
     'mean_absolute_error': mean_absolute_error,
-    'r2_score': r2_score
+    'r2_score': r2_score,
+    'auroc_ovo': auroc,
+    'jsd': jensenshannon
 }
 
 def registerMetric(name, fn):
     METRICS_FN[name] = fn
 
 class Evaluator(object):
-    def __init__(self, model, nc, device="cpu", metrics=None, post_process=None, negative_class=0, labels=None):
+    def __init__(self, model, nc, device="cpu", metrics=None, post_process=None, negative_class=0, labels=None, soft= True, remove_zero_class=False):
         self.model = model # must implement the 'forward' method
         self.device = device
         self.negative_class = negative_class
-        
+        self.soft = soft
+        self.remove_zero_class = remove_zero_class
+
         if post_process is None:
             # identity function
             post_process = lambda x: x
@@ -67,12 +77,15 @@ class Evaluator(object):
                     'recall': {'average': 'weighted', 'zero_division': 0, 'labels': labels},
                     'accuracy': {},
                     'matthews_corrcoef': {},
-                    'auroc': {'average': 'macro'},
+                    'auroc': {'average': 'macro', 'multi_class':'ovr'},
+                    'auroc_ovo': {'average': 'macro', 'multi_class':'ovo'}
                 }
-            else:
-                metrics = {"mean_squared_error": {},
+                if self.soft:
+                    metrics = {"mean_squared_error": {},
                         "mean_absolute_error": {},
-                        "r2_score": {}
+                        "auroc": {'average': 'macro', 'multi_class':'ovr'},
+                        "auroc_ovo": {'average': 'macro', 'multi_class':'ovo'},
+                        "jsd": {'base': 2, 'axis': 1}
                         }
             self.metrics = metrics
         else:
@@ -81,17 +94,13 @@ class Evaluator(object):
             self.metrics = metrics
     
     @torch.no_grad()
-    def eval(self, dataset, eval_mode=True, batchwise=False, use_masks=False, return_masks=False, return_predicted=False, return_batches=True, xtras=None, split_batches=False, **kwargs):
+    def eval(self, dataset, eval_mode=True, batchwise=False, use_masks=True, return_masks=False, return_predicted=False, return_batches=True, xtras=None, split_batches=False, **kwargs):
         """Returns numpy arrays!!!"""        
         
         def _loop(batch, data_items, y_gts, y_prs, outps, masks, batches):
             batch_data = processBatch(self.device, batch, xtras=xtras)
-            #batch, y, mask = batch_data['batch'], batch_data['y'], batch_data['mask']
-            batch, y = batch_data['batch'], batch_data['y']
+            batch, y, mask = batch_data['batch'], batch_data['y'], batch_data['mask']
             output = self.model(batch)
-            #print(output)
-            if (type(output) == tuple):
-                output = output[0]
             if use_masks:
                 y = y[mask].cpu().numpy()
                 out = self.post(output[mask]).cpu().numpy()
@@ -127,7 +136,7 @@ class Evaluator(object):
         # eval or training
         if eval_mode:
             self.model.eval()
-            pass
+        
         # evaluate model on given dataset
         data_items = {}
         y_gts = []
@@ -162,16 +171,13 @@ class Evaluator(object):
             data_items['num_batches'] = len(y_gts)
         else:
             for item in data_items:
-                #print(item, data_items[item])
-                try:
-                    data_items[item] = np.concatenate([data_items[item]], axis=0)
-                except:
-                    data_items[item] = np.concatenate(data_items[item], axis=0)
+                data_items[item] = np.concatenate(data_items[item], axis=0)
             data_items['num'] = len(data_items['y'])
         
         # add batches if requested
         if return_batches:
             data_items['batches'] = batches
+        
         return data_items
     
     def getMetrics(self, *args, 
@@ -197,21 +203,20 @@ class Evaluator(object):
             batchwise = True
         else:
             raise ValueError("Invalid option for `metrics_calculation`: {}".format(metrics_calculation))
+        
         # Determine what we were given (a dataset or labels/predictions)
-
         if len(args) == 1:
-            evald = self.eval(args[0], eval_mode=eval_mode, use_masks=False, return_masks=False, return_batches=True, batchwise=batchwise, split_batches=split_batches, **kwargs)
+            evald = self.eval(args[0], eval_mode=eval_mode, use_masks=False, return_masks=True, return_batches=True, batchwise=batchwise, split_batches=split_batches, **kwargs)
             if batchwise:
                 y_gt = evald['y']
                 outs = evald['output']
                 batches = evald['batches']
-                #masks = evald['masks']
+                masks = evald['masks']
             else:
                 y_gt = [evald['y']]
                 outs = [evald['output']]
                 batches = [evald['batches']]
-                #masks = [evald['masks']]
-                #print(outs)
+                masks = [evald['masks']]
         else:
             if len(args) == 3:
                 y_gt, outs, masks = args
@@ -221,31 +226,90 @@ class Evaluator(object):
                 batches = [batches]
             y_gt = [y_gt]
             outs = [outs]
-            #masks = [masks]
-        y_pr = []
+            masks = [masks]
+        
         # Get predicted class labels
         for i in range(len(y_gt)):
-            y_pr.append(self.predictClass(outs[i], y_gt[i], metric_values, threshold=threshold, threshold_metric=threshold_metric, report_threshold=report_threshold))
-        if self.nc == 1:
+            try:
+                if(y_gt[i].shape[1] > 1 and not self.soft):
+                    y_gt[i] = np.argmax(y_gt[i], axis = 1)
+            except:
+                pass
+            y_pr = self.predictClass(outs[i], y_gt[i], metric_values, threshold=threshold, threshold_metric=threshold_metric, report_threshold=report_threshold)
+            #print(y_pr, y_pr.shape, np.unique(y_pr))
+            #if batches is not None:
+                #y_gt[~masks] = self.negative_class
+                #self.getGraphMetrics(batches[i], y_gt[i], y_pr, metric_values)
+            if masks is not None:    
+                if(self.remove_zero_class):
+                    y_gt[i] = y_gt[i][masks[i]][:,1:]
+                    outs[i] = softmax(outs[i][masks[i]][:,1:], axis = 1)
+                else:
+                    #print(y_gt[i].shape,outs[i].shape)
+                    y_gt[i] = y_gt[i][masks[i]]
+                    outs[i] = softmax(outs[i][masks[i]], axis = 1)
+
+                y_pr = y_pr[masks[i]]
+            #print(y_gt[i], outs[i])
+                #print(outs[i])
+            #print(y_pr, y_pr.shape, np.unique(y_pr))
+            #print(y_gt[i], y_gt[i].shape, np.unique(y_gt[i]))
+            # Compute metrics
+            #print(y_pr,outs[i])
             for metric, kw in self.metrics.items():
-                #if(metric == "r2_score"):
-                    #print(np.array(y_gt).reshape(-1), np.array(outs).reshape(-1))
-                try:
-                    metric_values[metric].append(METRICS_FN[metric](np.array(y_gt).reshape(-1), np.array(outs).reshape(-1), **kw))
-                except Exception as e:
-                    print(e, metric, np.array(outs).reshape(-1))
-                    metric_values[metric].append(np.nan)
-        else:
-            for metric, kw in self.metrics.items():
-                if metric in ['auprc', 'auroc', 'auroc_ovo']:
+                if (not self.soft) and metric in ['auprc', 'auroc', 'auroc_ovo']:
                     # AUC metrics
-                    value = METRICS_FN[metric](y_gt[0], outs[0], **kw)
+                    value = METRICS_FN[metric](y_gt[i], outs[i], **kw)
                     if(value is not None):
                         metric_values[metric].append(value)
+                elif metric == 'smoothness':
+                    # use `getGraphMetrics` for this
+                    continue
+                elif self.soft:
+                    if(metric in ['auroc','auroc_ovo']):
+                        #print(np.unique(np.sum(y_gt[i],axis=1)), np.unique(np.argmax(y_gt[i], axis=1)))
+                        metric_values[metric].append(METRICS_FN[metric](np.argmax(y_gt[i], axis=1).flatten(), outs[i], **kw))        
+                    elif(metric in ['jsd']):
+                        metric_values[metric].append(np.mean(METRICS_FN[metric](y_gt[i], outs[i], **kw)))
+                    else:
+                        try:
+                            metric_values[metric].append(METRICS_FN[metric](y_gt[i].reshape(-1,1), outs[i].reshape(-1,1), **kw))
+                        except Exception as e:
+                            print(e, y_gt[i].reshape(-1,1), outs[i].reshape(-1,1))
+                            sys.exit()
                 else:
-                    metric_values[metric].append(METRICS_FN[metric](y_gt[0], y_pr[0], **kw))
+                    metric_values[metric].append(METRICS_FN[metric](y_gt[i], y_pr, **kw))
         for key in metric_values:
+            #metric_values[key] = np.mean(metric_values[key])
             metric_values[key] = np.nanmean(metric_values[key])
+        
+        return metric_values
+    
+    def getGraphMetrics(self, batches, y_gt, y_pr, metric_values=None):
+        if self.metrics is None:
+            return {}
+        if metric_values is None:
+            metric_values = {}
+        
+        smooth_gt = []
+        smooth_pr = []
+        ptr = 0
+        if not isinstance(batches, list):
+            batches = [batches]
+        for batch in batches:
+            edge_index = batch.edge_index.cpu().numpy()
+            slc = slice(ptr, ptr + batch.num_nodes)
+            if "smoothness" in self.metrics:
+                smooth_gt.append(METRICS_FN["smoothness"](y_gt[slc], edge_index, **self.metrics['smoothness']))
+                smooth_pr.append(METRICS_FN["smoothness"](y_pr[slc], edge_index, **self.metrics['smoothness']))
+            ptr += batch.num_nodes
+        
+        if "smoothness" in self.metrics:
+            smooth_pr = np.mean(smooth_pr)
+            smooth_gt = np.mean(smooth_gt)
+            metric_values['smoothness'].append(smooth_pr)
+            metric_values['smoothness_relative'].append((smooth_pr - smooth_gt)/smooth_gt)
+        
         return metric_values
     
     def predictClass(self, outs, y_gt=None, metrics_dict=None, threshold=None, threshold_metric='balanced_accuracy', report_threshold=False):
@@ -263,7 +327,5 @@ class Evaluator(object):
                 metrics_dict['threshold'] = threshold
         elif self.nc > 2:
             y_pr = np.argmax(outs, axis=1).flatten()
-        else: 
-            return None
+        
         return y_pr
-

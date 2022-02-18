@@ -1,26 +1,27 @@
 {
-  "data_dir": "/home/raktimmi/interactions/data/npz/",
-  "output_path": "/home/raktimmi/interactions/src/output/",
-  "run_name": "test_delG_pred",
-  "nc": 1,
-  "epochs": 300,
+  "data_dir": "/home/raktim/interactions/data/npz/",
+  "output_path": "/home/raktim/interactions/src/output/",
+  "run_name": "test_binding_atoms",
+  "nc": 2,
+  "epochs": 100,
   "batch_size": 1,
   "no_random": false,
   "debug": false,
   "write": true,
+  "soft": false,
   "checkpoint_every": 0,
   "tensorboard": true,
   "shuffle": false,
-  "x_key": "Xs",
-  "labels_key": "Y",
+  "x_key": "Xb",
+  "labels_key": "Yb",
   "balance": "unmasked",
   "motif_length": 5,
   "nmotif_features": 4,
   "kl": true,
   "kmer_encoding": "one_hot",
-  "best_state_metric": "r2_score",
-  "loss": "mse",
-  "model_name": "pointnetpp",
+  "best_state_metric": "auroc",
+  "loss": "ce",
+  "model_name": "pointnetppbinding",
   "optimizer": {
     "name": "adamW",
     "kwargs": {
@@ -28,6 +29,7 @@
       "weight_decay": 0.0001
     }
   },
+  "weight_method": "batch",
   "scheduler": {
     "name": null,
     "kwargs": {}

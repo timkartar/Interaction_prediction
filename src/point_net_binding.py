@@ -148,7 +148,7 @@ class FPModule(torch.nn.Module):
         
         return x, pos_skip, batch_skip
 
-class PointNetPP(torch.nn.Module):
+class PointNetPPBinding(torch.nn.Module):
     def __init__(self, nIn, nOut=None, 
             conv_args=None,
             crf_kwargs={},
@@ -167,7 +167,7 @@ class PointNetPP(torch.nn.Module):
             v_dropout=0.0,
             e_dropout=0.0
         ):
-        super(PointNetPP, self).__init__()
+        super(PointNetPPBinding, self).__init__()
         
         ### Set up ###
         self.depth = depth
@@ -233,14 +233,15 @@ class PointNetPP(torch.nn.Module):
         if use_crf:
             self.crf1 = ContinuousCRF(**crf_kwargs)
         
-        self.lin_final = MLP([nhidden*2,nhidden,nhidden//2,nOut],act=['elu', 'elu', None],batch_norm=[False,False,False,False])
-
+        self.lin_final = MLP([nOut*2,nOut,nOut//2,1],act=['elu', 'elu', None],batch_norm=[False,False,False,False])
+        self.softmax = nn.Softmax(dim=1)
+    
     def forward(self, data):
         # lin1
         x = self.lin_in(data.x)
-        #print(x, "a")
+        #print(x.size(), "a")
         #x = F.dropout(x, p=self.v_dropout, training=self.training)
-        #print(x, "b")
+        #print(x.size(), "b")
         # conv/pooling
         norm = data.norm
         sa_outs = [(x, data.pos, data.batch)]
@@ -252,19 +253,19 @@ class PointNetPP(torch.nn.Module):
             x, pos, batch, idx = self.SA_modules[i].forward(*args)
             sa_outs.append((x, pos, batch))
             norm = norm[idx]
-        #print(x, "c")
+        #print(x.size(), "c")
         # unpooling
         fp_out = self.FP_modules[-1].forward(*sa_outs[-1], *sa_outs[-2])
         for i in range(1, self.depth):
             j = - i
             fp_out = self.FP_modules[j-1].forward(*fp_out, *sa_outs[j-2])
         x = fp_out[0]
-        #print(x, "d")
+        #print(x.size(), "d")
         # lin 2-4
         if self.use_lin:
             #x = F.dropout(x, p=self.v_dropout, training=self.training)
             x = self.lin_out(x)
-        #print(x, "e")
+        #print(x.size(), "e")
         # crf layer
         if self.use_crf:
             x = self.crf1(x, data.edge_index)
@@ -273,27 +274,6 @@ class PointNetPP(torch.nn.Module):
         x = torch.mean(x, dim=0, keepdim=True)
         x = self.lin_final(x)
         """
-        #print(x.shape)
-        edges_to_count = data.het_edge_index 
-        
-        left = x[edges_to_count[:,0],:]
-        right = x[edges_to_count[:,1],:]
-        x = torch.cat((left,right),dim=1)
-        #print(x.size(), "i")    
-        
-        #left_x = torch.mean(x[edges_to_count[:,0],:], dim=0, keepdim=True)
-        #right_x = torch.mean(x[edges_to_count[:,1],:], dim=0, keepdim=True)
-
-        #x = torch.cat((left_x,right_x),dim=1)
-        #print(x,"h")
-        #print(x.size())
-        
-        #edge_weights = torch.sum(left * right, dim =-1, keepdim=True)
-        #print(edge_weights.shape)
-        #x = torch.sum(edge_weights).unsqueeze(0)
-        
-        #print(edges_to_count)
-
-        x = torch.mean(self.lin_final(x))
-        #print(x, "g")
+        x = self.softmax(x)
+        #print(x,"g")
         return x

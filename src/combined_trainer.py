@@ -124,14 +124,13 @@ class Trainer(object):
             for batch in dataset:
                 oom = False
                 # update the model weights
-                batch_data = processBatch(self.device, batch, xtras=["f"])
+                batch_data = processBatch(self.device, batch, xtras=["f","y_cls"])
                 #print(batch_data['f'])
-                batch, y = batch_data['batch'], batch_data['y']
+                batch, y, y_cls = batch_data['batch'], batch_data['y'], batch_data['y_cls']
                 #batch, y = batch_data['batch'], batch_data['y']
                 # check for OOM errors
-                print(y.size())
                 try:
-                    loss = self.optimizer_step(batch, y, **optimizer_kwargs)
+                    loss = self.optimizer_step(batch, y, y_cls, **optimizer_kwargs)
                     #loss = self.optimizer_step(batch, y, **optimizer_kwargs)
                 except RuntimeError as e: # out of memory
                     logging.info("Runtime error -- skipping batch.")
@@ -212,16 +211,17 @@ class Trainer(object):
                 logging.info("Writing checkpoint to file {} at epoch {}".format(fname, epoch))
         self.endTraining()
         
-    def optimizer_step(self, batch, y,  use_weight=False, weight=None):
+    def optimizer_step(self, batch, y, y_cls,  use_weight=False, weight=None):
         try:
             if use_weight and weight is None:
-                weight = classWeights(y.to(dtype=torch.long), self.nc, device=self.device)
+                weight = classWeights(y_cls.to(dtype=torch.long), 2, device=self.device)
             elif not use_weight:
                 weight = None
         except Exception as e:
             print("problem with weight:", e)
         self.optimizer.zero_grad()
-        output = self.model(batch)
+        output, output_cls = self.model(batch)
+        
         #print(y.data.cpu().numpy(), output.data.cpu().numpy())
         if self.criterion == "ce":
             loss = self.loss(output,y.to(dtype=torch.long), weight=weight)
@@ -230,7 +230,9 @@ class Trainer(object):
         else:
             loss = self.loss(output.reshape(-1,1),y.reshape(-1,1))
 
+        loss_cls = torch.nn.functional.cross_entropy(output_cls,y_cls.to(dtype=torch.long), weight=weight)
         # compute gradients
+        loss = loss + loss_cls
         loss.sum().backward()
         #for name, p in self.model.named_parameters():
         #    print(name, p.grad)
